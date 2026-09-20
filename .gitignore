@@ -1,0 +1,9 @@
+target/
+node_modules/
+dist/
+__pycache__/
+.pytest_cache/
+.env
+.idea/
+.vscode/
+scripts/qa-fixtures.local.json

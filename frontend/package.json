@@ -1,0 +1,35 @@
+{
+  "name": "agentdesk-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vue-tsc && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@vitejs/plugin-vue": "5.2.1",
+    "axios": "1.7.9",
+    "dompurify": "^3.4.14",
+    "element-plus": "2.9.1",
+    "lucide-vue-next": "0.468.0",
+    "markdown-it": "^15.0.1",
+    "pdfjs-dist": "^6.3.289",
+    "pinia": "^4.0.3",
+    "vue": "3.5.13",
+    "vue-router": "4.5.0"
+  },
+  "devDependencies": {
+    "@types/dompurify": "^3.0.5",
+    "@types/markdown-it": "^14.2.0",
+    "@types/node": "22.10.2",
+    "typescript": "5.7.2",
+    "vite": "6.0.5",
+    "vue-tsc": "2.2.0"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}

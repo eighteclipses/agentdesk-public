@@ -1,0 +1,292 @@
+openapi: 3.0.3
+info:
+  title: AgentDesk Business API
+  version: 0.2.0
+  description: |
+    企业智能工单与知识库协同平台 API。
+
+    鉴权：登录成功后服务端下发 HTTP-only Cookie `agentdesk_token`（JWT，HS256；
+    Secure 标志在 HTTPS / X-Forwarded-Proto=https 时自动启用，可用
+    security.cookie.secure 强制），也接受 `Authorization: Bearer <token>`。
+    JWT_SECRET 未配置或不安全时后端拒绝启动；AGENT_SERVICE_TOKEN 未配置时
+    Agent 服务（/v1/*）拒绝提供服务（fail-closed）。
+  contact: {name: AgentDesk}
+servers:
+  - url: http://localhost:8080
+    description: 后端业务 API
+  - url: http://localhost:8000
+    description: Agent AI 服务（需 X-Agent-Token）
+security:
+  - cookieAuth: []
+  - bearerAuth: []
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: agentdesk_token
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    agentToken:
+      type: apiKey
+      in: header
+      name: X-Agent-Token
+  schemas:
+    TicketCreate:
+      type: object
+      required: [title, description]
+      properties:
+        title: {type: string, example: VPN 无法连接}
+        description: {type: string, example: 出差时无法连接公司 VPN}
+        category: {type: string, example: NETWORK}
+        priority: {type: string, enum: [P1, P2, P3, P4]}
+    Transition:
+      type: object
+      required: [status]
+      properties:
+        status: {type: string, enum: [TRIAGED, ASSIGNED, IN_PROGRESS, PENDING_USER, RESOLVED, CLOSED]}
+        reason: {type: string, description: RESOLVED/CLOSED 必填}
+        assigneeId: {type: integer, format: int64}
+    Login:
+      type: object
+      required: [username, password]
+      properties:
+        username: {type: string}
+        password: {type: string, format: password}
+    PageMeta:
+      type: object
+      properties:
+        items: {type: array, items: {type: object}}
+        total: {type: integer, format: int64}
+paths:
+  /actuator/health:
+    get:
+      summary: 服务健康检查
+      security: []
+      responses: {'200': {description: UP}}
+
+  # ---- 认证 ----
+  /api/auth/login:
+    post:
+      summary: 登录（下发 agentdesk_token Cookie；限流：每来源 5 次/分钟）
+      security: []
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Login'}}}}
+      responses:
+        '200': {description: 登录成功}
+        '401': {description: 用户名或密码错误}
+        '429': {description: 登录尝试过于频繁}
+  /api/auth/register:
+    post:
+      summary: 员工注册（待管理员审核）
+      security: []
+      responses: {'201': {description: 注册成功}}
+  /api/auth/logout:
+    post: {summary: 退出登录, responses: {'200': {description: 已退出}}}
+  /api/auth/me:
+    get: {summary: 当前登录用户信息, responses: {'200': {description: 用户与角色}}}
+  /api/auth/password:
+    post: {summary: 修改密码（首次登录强制）, responses: {'200': {description: 已更新}}}
+
+  # ---- 工单 ----
+  /api/tickets:
+    get:
+      summary: 查询当前用户可见工单（分页）
+      parameters:
+        - {in: query, name: page, schema: {type: integer, minimum: 1}}
+        - {in: query, name: size, schema: {type: integer, minimum: 1, maximum: 100}}
+      responses: {'200': {description: 工单分页结果（items+total）}}
+    post:
+      summary: 创建工单
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TicketCreate'}}}}
+      responses: {'200': {description: 创建成功}}
+  /api/tickets/{id}:
+    get:
+      summary: 查看工单详情
+      parameters: [{in: path, name: id, required: true, schema: {type: integer, format: int64}}]
+      responses: {'200': {description: 工单详情}, '403': {description: 无权访问}}
+  /api/tickets/{id}/transition:
+    post:
+      summary: 工单状态流转（处理人/管理员）
+      parameters: [{in: path, name: id, required: true, schema: {type: integer, format: int64}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Transition'}}}}
+      responses: {'200': {description: 流转成功}, '400': {description: 非法流转}}
+  /api/tickets/{id}/comments:
+    get:
+      summary: 查询工单评论时间线（含作者姓名）
+      parameters: [{in: path, name: id, required: true, schema: {type: integer, format: int64}}]
+      responses: {'200': {description: 评论列表}}
+    post:
+      summary: 添加工单评论
+      parameters: [{in: path, name: id, required: true, schema: {type: integer, format: int64}}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [content], properties: {content: {type: string}}}}}
+      responses: {'200': {description: 评论成功}}
+  /api/tickets/{id}/attachments:
+    get:
+      summary: 查询工单附件
+      parameters: [{in: path, name: id, required: true, schema: {type: integer, format: int64}}]
+      responses: {'200': {description: 附件列表}}
+    post:
+      summary: 上传工单附件到 MinIO
+      parameters: [{in: path, name: id, required: true, schema: {type: integer, format: int64}}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: {type: object, required: [file], properties: {file: {type: string, format: binary}}}
+      responses: {'200': {description: 上传成功}}
+
+  # ---- 知识库 ----
+  /api/knowledge:
+    get:
+      summary: 查询知识文章（员工只见有权限的已发布文章）
+      description: 传 page/size 返回分页结构（items+total）；不传返回全量数组（兼容旧调用方）。
+      parameters:
+        - {in: query, name: page, schema: {type: integer}}
+        - {in: query, name: size, schema: {type: integer}}
+        - {in: query, name: q, schema: {type: string}, description: 标题关键字过滤}
+      responses: {'200': {description: 文章列表或分页结果}}
+    post:
+      summary: 创建知识文章（管理员）
+      responses: {'200': {description: 创建成功}}
+  /api/knowledge/search:
+    get:
+      summary: 全文检索（CJK 单字+双字分词，权限预过滤）
+      parameters: [{in: query, name: q, required: true, schema: {type: string}}]
+      responses: {'200': {description: 检索命中及引用（article:{id}/version:{id}#c{n}）}}
+  /api/knowledge/ask/stream:
+    post:
+      summary: 流式知识问答（SSE）
+      description: 事件序列：stage → citations（先于首 token）→ token... → done/error。限流：每用户 20 次/分钟。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question]
+              properties:
+                question: {type: string}
+                scope: {type: string, enum: [ENTERPRISE, PERSONAL, ALL]}
+                provider: {type: string}
+                conversationId: {type: integer, format: int64}
+      responses: {'200': {description: SSE 流}, '429': {description: 提问过于频繁}}
+  /api/knowledge/articles/{id}:
+    get:
+      summary: 文章详情（含大纲分块；管理员可看授权部门）
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: integer, format: int64}}
+        - {in: query, name: versionId, schema: {type: integer, format: int64}}
+      responses: {'200': {description: 详情}, '404': {description: 不存在或无权访问}}
+  /api/knowledge/articles/{id}/review:
+    post:
+      summary: 审核通过/驳回（管理员，事务化）
+      parameters: [{in: path, name: id, required: true, schema: {type: integer, format: int64}}]
+      responses: {'200': {description: 已更新}}
+  /api/knowledge/articles/{id}/retract:
+    post:
+      summary: 撤回/下架文章（管理员）
+      description: 文章置 ARCHIVED 立即退出检索与列表，保留版本与审计记录，不做物理删除。
+      parameters: [{in: path, name: id, required: true, schema: {type: integer, format: int64}}]
+      responses: {'200': {description: 已撤回}}
+  /api/knowledge/articles/{id}/file:
+    get:
+      summary: 下载导入原件
+      parameters: [{in: path, name: id, required: true, schema: {type: integer, format: int64}}]
+      responses: {'200': {description: 二进制原件}}
+
+  # ---- 导入中心（异步流水线） ----
+  /api/admin/imports:
+    post:
+      summary: 创建导入批次（多文件，原子化）
+      description: 先整体校验扩展名，再上传；任一步失败自动清理孤儿对象并回滚。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files: {type: array, items: {type: string, format: binary}}
+                sourcePaths: {type: array, items: {type: string}, description: 与 files 对应的文件夹相对路径}
+                name: {type: string}
+                departmentId: {type: integer, format: int64}
+                duplicateStrategy: {type: string, enum: [skip, version]}
+      responses:
+        '200': {description: 批次已创建，进入异步处理}
+        '415': {description: 存在不支持的格式（整批拒绝）}
+    get:
+      summary: 批次列表（管理员）
+      responses: {'200': {description: 批次摘要}}
+  /api/admin/imports/{id}/events:
+    get:
+      summary: 批次进度 SSE（断线可重放历史事件）
+      parameters: [{in: path, name: id, required: true, schema: {type: integer, format: int64}}]
+      responses: {'200': {description: SSE 进度流}}
+  /api/admin/imports/items/{id}/retry:
+    post:
+      summary: 重试失败项（管理员）
+      parameters: [{in: path, name: id, required: true, schema: {type: integer, format: int64}}]
+      responses: {'200': {description: 已重新排队}}
+  /api/admin/imports/batches/{id}/publish:
+    post:
+      summary: 批量发布批次内待审核文章（管理员）
+      parameters: [{in: path, name: id, required: true, schema: {type: integer, format: int64}}]
+      responses: {'200': {description: 已发布数量}}
+
+  # ---- Agent 编排 ----
+  /api/agent/classify:
+    post: {summary: 工单分类摘要, responses: {'200': {description: 结构化分类结果}}}
+  /api/agent/retrieve-draft:
+    post: {summary: 检索知识并生成带引用回复草稿, responses: {'200': {description: 草稿与证据}}}
+  /api/agent/recommend:
+    post: {summary: 推荐优先级、团队和下一步, responses: {'200': {description: 推荐结果}}}
+  /api/agent/actions:
+    get: {summary: 查询待审批 Agent 动作, responses: {'200': {description: 待审批列表}}}
+    post: {summary: 创建待审批动作, responses: {'200': {description: PENDING 动作}}}
+  /api/agent/actions/{id}/approve:
+    post: {summary: 批准 Agent 写入动作, responses: {'200': {description: APPROVED}}}
+  /api/agent/actions/{id}/reject:
+    post: {summary: 驳回 Agent 写入动作, responses: {'200': {description: REJECTED}}}
+
+  # ---- 审计与看板 ----
+  /api/audit:
+    get:
+      summary: 查询审计日志（管理员，分页）
+      parameters:
+        - {in: query, name: page, schema: {type: integer}}
+        - {in: query, name: size, schema: {type: integer, maximum: 200}}
+        - {in: query, name: action, schema: {type: string}, description: 按动作名模糊过滤}
+      responses: {'200': {description: 审计分页记录}, '403': {description: 需要管理员权限}}
+  /api/dashboard:
+    get: {summary: 运行指标看板, responses: {'200': {description: 工单、知识和 SLA 指标}}}
+  /api/admin/organization:
+    get:
+      summary: 查询组织、用户、角色和权限（管理员）
+      responses: {'200': {description: 组织权限视图}, '403': {description: 无权访问}}
+
+  # ---- Agent 服务（内部） ----
+  /v1/parse-document:
+    servers: [{url: http://localhost:8000}]
+    security: [{agentToken: []}]
+    post:
+      summary: 将 Markdown/TXT/PDF/DOCX 统一解析为 Markdown（线程池执行，不阻塞事件循环）
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: {type: object, required: [file], properties: {file: {type: string, format: binary}}}
+      responses:
+        '200': {description: 解析成功}
+        '401': {description: 缺少或错误的 X-Agent-Token}
+        '415': {description: 不支持的格式}
+  /v1/answer/stream:
+    servers: [{url: http://localhost:8000}]
+    security: [{agentToken: []}]
+    post:
+      summary: 流式问答（后端透传；知识片段以数据分隔符包裹防提示词注入）
+      responses: {'200': {description: SSE token 流}, '401': {description: 令牌无效}}

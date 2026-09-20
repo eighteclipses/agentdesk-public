@@ -1,0 +1,120 @@
+# 安全基线：
+# - 所有秘密（JWT_SECRET / AGENT_SERVICE_TOKEN / 数据库与 MinIO 口令）必须通过 .env 提供，未设置时 compose 直接报错；
+# - postgres / redis / minio / agent 不再发布到宿主机，仅 docker 网络内可达；
+# - 全部服务带 healthcheck 与 restart 策略，依赖按健康状态编排。
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: agentdesk
+      POSTGRES_USER: agentdesk
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentdesk -d agentdesk"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?请在 .env 中设置 REDIS_PASSWORD}"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-agentdesk}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?请在 .env 中设置 MINIO_ROOT_PASSWORD（至少 12 位）}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  agent:
+    build: ./agent
+    environment:
+      BACKEND_BASE_URL: http://backend:8080
+      GLM_API_KEY: ${GLM_API_KEY:-}
+      GLM_BASE_URL: ${GLM_BASE_URL:-https://tokenrhythm.studio/v1}
+      GLM_MODEL: ${GLM_MODEL:-glm-5.3-flash}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-60}
+      AGENT_SERVICE_TOKEN: ${AGENT_SERVICE_TOKEN:?请在 .env 中设置 AGENT_SERVICE_TOKEN（至少 32 位随机值）}
+      # 向量检索：留空禁用；配置如 embedding-3 启用（需供应商 /embeddings 支持 dimensions 参数）
+      AGENT_EMBED_MODEL: ${AGENT_EMBED_MODEL:-}
+      AGENT_EMBED_DIMENSIONS: ${AGENT_EMBED_DIMENSIONS:-512}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      agent:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/agentdesk
+      SPRING_DATASOURCE_USERNAME: agentdesk
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD}
+      AGENT_BASE_URL: http://agent:8000
+      AGENT_SERVICE_TOKEN: ${AGENT_SERVICE_TOKEN}
+      AGENT_EMBED_MODEL: ${AGENT_EMBED_MODEL:-}
+      JWT_SECRET: ${JWT_SECRET:?请在 .env 中设置 JWT_SECRET（至少 32 位随机值）}
+      JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-28800}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-agentdesk}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      SECURITY_COOKIE_SECURE: ${SECURITY_COOKIE_SECURE:-}
+    ports:
+      # 仅供联调直连；生产部署应移除，只保留 frontend
+      - "${BACKEND_HOST_PORT:-127.0.0.1:8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 12
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports: ["${FRONTEND_HOST_PORT:-5173}:80"]
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:

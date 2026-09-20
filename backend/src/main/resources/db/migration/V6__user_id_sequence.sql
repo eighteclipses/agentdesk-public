@@ -1,0 +1,3 @@
+CREATE SEQUENCE IF NOT EXISTS users_id_seq START WITH 11000;
+SELECT setval('users_id_seq', GREATEST((SELECT COALESCE(MAX(id), 10999) FROM users), 10999));
+ALTER TABLE users ALTER COLUMN id SET DEFAULT nextval('users_id_seq');
