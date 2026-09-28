@@ -79,8 +79,15 @@ public class KnowledgeService {
       " AND (a.visibility='PUBLIC' OR EXISTS (SELECT 1 FROM knowledge_department_access da WHERE da.article_id=a.id AND da.department_id=?))" +
       " AND (a.sensitivity<>'CONFIDENTIAL' OR EXISTS (SELECT 1 FROM knowledge_department_access da WHERE da.article_id=a.id AND da.department_id=?))";
 
+  private static final String PENDING_VERSION_SQL = "(SELECT pv.id FROM knowledge_versions pv WHERE pv.article_id=a.id AND pv.status='DRAFT' AND pv.version=(SELECT max(lv.version) FROM knowledge_versions lv WHERE lv.article_id=a.id))";
+
+  private String articleSelect(UserContext user) {
+    return "SELECT a.id,a.title,a.category,a.status,v.version,a.visibility,a.updated_at,"+
+        (user.admin()?PENDING_VERSION_SQL:"NULL::bigint")+" AS pending_version_id FROM knowledge_articles a JOIN knowledge_versions v ON v.id=a.current_version_id";
+  }
+
   public List<KnowledgeArticle> list(UserContext user){
-    String base="SELECT a.id,a.title,a.category,a.status,v.version,a.visibility,a.updated_at FROM knowledge_articles a JOIN knowledge_versions v ON v.id=a.current_version_id";
+    String base=articleSelect(user);
     if(!user.admin()) base+=" WHERE a.status='PUBLISHED'"+VISIBILITY_FILTER;
     base+=" ORDER BY a.updated_at DESC";
     return user.admin()?jdbc.query(base,(rs,n)->mapArticle(rs,n)):jdbc.query(base,(rs,n)->mapArticle(rs,n),user.departmentId(),user.departmentId());
@@ -89,21 +96,24 @@ public class KnowledgeService {
   /** 分页列表：非管理员恒为 PUBLISHED 且有权限的文章；管理员可再按 status 过滤（审核台用）。 */
   public Page<KnowledgeArticle> listPage(UserContext user, int page, int size, String q, String category, String tag, String status){
     int p=Math.max(1,page); int s=Math.min(Math.max(1,size),100);
-    StringBuilder sql=new StringBuilder("SELECT a.id,a.title,a.category,a.status,v.version,a.visibility,a.updated_at FROM knowledge_articles a JOIN knowledge_versions v ON v.id=a.current_version_id");
+    StringBuilder sql=new StringBuilder(articleSelect(user));
     List<Object> args=new ArrayList<>();
     if(!user.admin()){ sql.append(" WHERE a.status='PUBLISHED'").append(VISIBILITY_FILTER); args.add(user.departmentId()); args.add(user.departmentId()); }
     else sql.append(" WHERE TRUE");
-    if(user.admin()&&status!=null&&!status.isBlank()){ sql.append(" AND a.status=?"); args.add(status.toUpperCase(java.util.Locale.ROOT)); }
+    if(user.admin()&&status!=null&&!status.isBlank()){
+      if("IN_REVIEW".equalsIgnoreCase(status)) sql.append(" AND (a.status='IN_REVIEW' OR ").append(PENDING_VERSION_SQL).append(" IS NOT NULL)");
+      else { sql.append(" AND a.status=?"); args.add(status.toUpperCase(java.util.Locale.ROOT)); }
+    }
     if(q!=null&&!q.isBlank()){ sql.append(" AND lower(a.title) LIKE lower(?)"); args.add("%"+q.strip()+"%"); }
     if(category!=null&&!category.isBlank()){ sql.append(" AND a.category=?"); args.add(category); }
     if(tag!=null&&!tag.isBlank()){ sql.append(" AND EXISTS (SELECT 1 FROM article_tags at2 JOIN knowledge_tags t ON t.id=at2.tag_id WHERE at2.article_id=a.id AND lower(t.name)=lower(?))"); args.add(tag); }
     Long total=jdbc.queryForObject("SELECT count(*) FROM ("+sql+") t",Long.class,args.toArray());
-    List<Object> pageArgs=new ArrayList<>(args); pageArgs.add(s); pageArgs.add((p-1)*s);
+    List<Object> pageArgs=new ArrayList<>(args); pageArgs.add(s); pageArgs.add((long)(p-1)*s);
     List<KnowledgeArticle> items=jdbc.query(sql.append(" ORDER BY a.updated_at DESC LIMIT ? OFFSET ?").toString(),(rs,n)->mapArticle(rs,n),pageArgs.toArray());
     return new Page<>(items,total==null?0:total);
   }
   private KnowledgeArticle mapArticle(java.sql.ResultSet rs,int n) throws java.sql.SQLException {
-    return new KnowledgeArticle(rs.getLong(1),rs.getString(2),rs.getString(3),rs.getString(4),rs.getInt(5),rs.getString(6),rs.getTimestamp(7).toInstant());
+    return new KnowledgeArticle(rs.getLong(1),rs.getString(2),rs.getString(3),rs.getString(4),rs.getInt(5),rs.getString(6),rs.getTimestamp(7).toInstant(),(Long)rs.getObject(8));
   }
 
   /** 每文章在检索结果中的最大命中数：避免单篇长文霸榜，让引用更均衡。 */
@@ -249,24 +259,37 @@ public class KnowledgeService {
     Map<String,Object> article=jdbc.queryForList("SELECT a.id,a.title,a.category,a.status,a.visibility,a.reviewed_at AS \"reviewedAt\",a.review_comment AS \"reviewComment\",a.sensitivity,a.source_note_id AS \"sourceNoteId\",a.created_at AS \"createdAt\",a.updated_at AS \"updatedAt\",a.current_version_id AS \"currentVersionId\" FROM knowledge_articles a WHERE a.id=?",id).get(0);
     Number current=(Number)article.get("currentVersionId");
     if(current==null) throw new ResponseStatusException(HttpStatus.CONFLICT,"文章尚无可用版本");
-    long vid=versionId!=null?versionId:current.longValue();
+    Map<String,Object> version=readableVersion(id,user,versionId);
+    long vid=((Number)version.get("id")).longValue();
     Map<String,Object> result=new LinkedHashMap<>(article);
-    List<Map<String,Object>> versionRows=jdbc.queryForList("SELECT id,version,status,chunk_ready,content,created_at FROM knowledge_versions WHERE id=? AND article_id=?",vid,id);
-    if(versionRows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"版本不存在或不属于该文章");
-    Map<String,Object> version=versionRows.get(0);
     result.put("versionId",version.get("id")); result.put("version",version.get("version")); result.put("versionStatus",version.get("status"));
     result.put("chunkReady",version.get("chunk_ready")); result.put("content",version.get("content"));
     result.put("tags",jdbc.queryForList("SELECT t.name FROM article_tags at2 JOIN knowledge_tags t ON t.id=at2.tag_id WHERE at2.article_id=? ORDER BY t.name",id));
     if(user.admin()) result.put("departments",jdbc.queryForList("SELECT d.id,d.name FROM knowledge_department_access da JOIN departments d ON d.id=da.department_id WHERE da.article_id=?",id));
     result.put("chunks",jdbc.query("SELECT id,chunk_index,heading_path,content,page_no,char_count FROM knowledge_chunks WHERE version_id=? ORDER BY chunk_index",(rs,n)->new ChunkInfo(rs.getLong(1),rs.getInt(2),rs.getString(3),rs.getString(4),(Integer)rs.getObject(5),(Integer)rs.getObject(6)),vid));
-    List<Map<String,Object>> files=jdbc.queryForList("SELECT file_name AS \"fileName\",size_bytes AS \"sizeBytes\" FROM import_items WHERE article_id=? ORDER BY id DESC LIMIT 1",id);
-    result.put("file",files.isEmpty()?null:files.get(0));
+    Map<String,Object> file=versionFile(id,vid);
+    result.put("file",file.isEmpty()?null:Map.of("fileName",file.get("fileName"),"sizeBytes",file.get("sizeBytes")));
     return result;
+  }
+
+  /** Employees see only the currently published version; drafts and history are administrative. */
+  private Map<String,Object> readableVersion(long id, UserContext user, Long versionId) {
+    String sql="SELECT v.id,v.version,v.status,v.chunk_ready,v.content,v.created_at FROM knowledge_versions v JOIN knowledge_articles a ON a.id=v.article_id WHERE a.id=? AND v.id=COALESCE(?,a.current_version_id)";
+    if(!user.admin()) sql+=" AND v.id=a.current_version_id AND v.status='PUBLISHED'";
+    List<Map<String,Object>> rows=jdbc.queryForList(sql,id,versionId);
+    if(rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"版本不存在或无权访问，请返回文章查看当前发布版本");
+    return rows.get(0);
+  }
+
+  private Map<String,Object> versionFile(long articleId,long versionId) {
+    List<Map<String,Object>> rows=jdbc.queryForList("SELECT i.object_key AS \"objectKey\",i.file_name AS \"fileName\",i.content_type AS \"contentType\",i.size_bytes AS \"sizeBytes\" FROM knowledge_versions v JOIN import_items i ON i.id=v.source_import_item_id AND i.article_id=v.article_id WHERE v.article_id=? AND v.id=?",articleId,versionId);
+    return rows.isEmpty()?Map.of():rows.get(0);
   }
 
   public List<ArticleVersionInfo> versions(long id, UserContext user){
     requireReadable(id,user);
-    return jdbc.query("SELECT v.id,v.version,v.status,v.chunk_ready,length(v.content),u.display_name,v.created_at,(v.id=a.current_version_id) FROM knowledge_versions v JOIN knowledge_articles a ON a.id=v.article_id LEFT JOIN users u ON u.id=v.created_by WHERE v.article_id=? ORDER BY v.version DESC",
+    String restriction=user.admin()?"":" AND v.id=a.current_version_id AND v.status='PUBLISHED'";
+    return jdbc.query("SELECT v.id,v.version,v.status,v.chunk_ready,length(v.content),u.display_name,v.created_at,(v.id=a.current_version_id) FROM knowledge_versions v JOIN knowledge_articles a ON a.id=v.article_id LEFT JOIN users u ON u.id=v.created_by WHERE v.article_id=?"+restriction+" ORDER BY v.version DESC",
         (rs,n)->new ArticleVersionInfo(rs.getLong(1),rs.getInt(2),rs.getString(3),rs.getBoolean(4),rs.getBoolean(8),rs.getLong(5),rs.getString(6),rs.getTimestamp(7)==null?null:rs.getTimestamp(7).toInstant()),id);
   }
 
@@ -276,42 +299,67 @@ public class KnowledgeService {
         (rs,n)->new ChunkInfo(rs.getLong(1),rs.getInt(2),rs.getString(3),rs.getString(4),(Integer)rs.getObject(5),(Integer)rs.getObject(6)),id);
   }
 
-  /** 原文件（导入原件）来源信息：articleId -> 最近一次成功导入的文件。 */
+  /** The original must belong to the selected readable version, never the newest upload. */
   public Map<String,Object> fileSource(long id, UserContext user){
+    return fileSource(id,user,null);
+  }
+  public Map<String,Object> fileSource(long id, UserContext user, Long versionId){
     requireReadable(id,user);
-    List<Map<String,Object>> rows=jdbc.queryForList("SELECT object_key AS \"objectKey\",file_name AS \"fileName\",content_type AS \"contentType\" FROM import_items WHERE article_id=? AND status<>'FAILED' ORDER BY id DESC LIMIT 1",id);
-    if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"该文章没有可下载的原始文件");
-    return rows.get(0);
+    Map<String,Object> version=readableVersion(id,user,versionId);
+    Map<String,Object> file=versionFile(id,((Number)version.get("id")).longValue());
+    if(file.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"该版本没有可确认的原始文件；管理员可在导入中心查看历史原件");
+    return file;
   }
 
   public KnowledgeArticle publish(long id, UserContext user){ return review(id,true,null,user); }
 
-  /** 审核状态机（事务）：approve=true 时最新版本置 PUBLISHED 并切换生效，旧版本归档；false 时文章置 REJECTED。 */
+  /** Review the exact version seen by the administrator, inside the article lock. */
   public KnowledgeArticle review(long id, boolean approve, String comment, UserContext user){
+    return review(id,approve,comment,user,null);
+  }
+  public KnowledgeArticle review(long id, boolean approve, String comment, UserContext user, Long expectedVersionId){
+    return review(id,approve,comment,user,expectedVersionId,null);
+  }
+  public KnowledgeArticle review(long id, boolean approve, String comment, UserContext user, Long expectedVersionId, String expectedArticleStatus){
     auth.requireAdmin(user);
-    List<Map<String,Object>> rows=jdbc.queryForList("SELECT id,status,current_version_id FROM knowledge_articles WHERE id=?",id);
-    if(rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"文章不存在");
-    // 发布对象是“最新版本”：同文件再导入的版本策略会先生成 DRAFT vN+1，审核通过后发布并切换生效
-    List<Long> latest=jdbc.query("SELECT id FROM knowledge_versions WHERE article_id=? ORDER BY version DESC LIMIT 1",(rs,n)->rs.getLong(1),id);
-    if(latest.isEmpty()) throw new ResponseStatusException(HttpStatus.CONFLICT,"文章尚无可用版本");
-    long versionId=latest.get(0);
-    tx.executeWithoutResult(s -> {
+    return tx.execute(s -> {
+      Map<String,Object> article=lockArticle(id);
+      if(expectedArticleStatus!=null&&!expectedArticleStatus.equals(article.get("status")))
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"文章发布状态已变更，请刷新后重新确认");
+      List<Map<String,Object>> latest=jdbc.queryForList("SELECT id,status FROM knowledge_versions WHERE article_id=? ORDER BY version DESC LIMIT 1",id);
+      if(latest.isEmpty()) throw new ResponseStatusException(HttpStatus.CONFLICT,"文章尚无可用版本");
+      long versionId=((Number)latest.get(0).get("id")).longValue();
+      if(expectedVersionId!=null && expectedVersionId!=versionId)
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"文章已有更新版本，请刷新并查看最新内容后再审核");
+      Long current=(Long)article.get("current_version_id");
+      boolean hasPublishedCurrent=current!=null && Boolean.TRUE.equals(jdbc.queryForObject(
+          "SELECT status='PUBLISHED' FROM knowledge_versions WHERE id=?",Boolean.class,current));
+      boolean keepPublished="PUBLISHED".equals(article.get("status")) && hasPublishedCurrent && !Objects.equals(current,versionId);
+      if(!approve && "PUBLISHED".equals(article.get("status")) && Objects.equals(current,versionId))
+        throw new ResponseStatusException(HttpStatus.CONFLICT,"当前发布版本不能驳回，如需下线请撤回文章");
       if(approve){
+        // Earlier drafts are superseded, not silently published along with the selected version.
+        jdbc.update("UPDATE import_items SET status='CANCELED',error='已由更新版本替代',updated_at=now() WHERE status='REVIEW' AND id IN (SELECT source_import_item_id FROM knowledge_versions WHERE article_id=? AND id<>? AND status='DRAFT')",id,versionId);
         jdbc.update("UPDATE knowledge_versions SET status='PUBLISHED' WHERE id=?",versionId);
-        jdbc.update("UPDATE knowledge_versions SET status='ARCHIVED' WHERE article_id=? AND id<>? AND status='PUBLISHED'",id,versionId);
-        // 关键：切换生效版本。此前只改状态不切换 current_version_id，导致导入"作为新版本导入"
-        // 与在线编辑生成的新版本审核通过后永远不会对员工生效（detail 仍返回旧版本内容）
+        jdbc.update("UPDATE knowledge_versions SET status='ARCHIVED' WHERE article_id=? AND id<>? AND status IN ('PUBLISHED','DRAFT')",id,versionId);
         jdbc.update("UPDATE knowledge_articles SET status='PUBLISHED',reviewed_by=?,reviewed_at=now(),review_comment=?,current_version_id=?,updated_at=now() WHERE id=?",user.id(),comment,versionId,id);
-        jdbc.update("UPDATE import_items SET status='PUBLISHED',updated_at=now() WHERE article_id=? AND status='REVIEW'",id);
       } else {
-        jdbc.update("UPDATE knowledge_articles SET status='REJECTED',reviewed_by=?,reviewed_at=now(),review_comment=?,updated_at=now() WHERE id=?",user.id(),comment,id);
-        jdbc.update("UPDATE import_items SET status='REJECTED',updated_at=now() WHERE article_id=? AND status='REVIEW'",id);
+        jdbc.update("UPDATE knowledge_versions SET status='REJECTED' WHERE id=?",versionId);
+        jdbc.update("UPDATE knowledge_articles SET status=?,reviewed_by=?,reviewed_at=now(),review_comment=?,updated_at=now() WHERE id=?",keepPublished?"PUBLISHED":"REJECTED",user.id(),comment,id);
       }
+      // Only the reviewed version's import changes state; older pending uploads are not approved accidentally.
+      jdbc.update("UPDATE import_items SET status=?,updated_at=now() WHERE id=(SELECT source_import_item_id FROM knowledge_versions WHERE id=?)",approve?"PUBLISHED":"REJECTED",versionId);
+      audit.log(user.id(),"KNOWLEDGE_REVIEWED","KNOWLEDGE",id,Map.of("approved",approve,"versionId",versionId,"comment",Objects.toString(comment,"")));
+      if(approve) audit.log(user.id(),"KNOWLEDGE_VERSION_PUBLISHED","KNOWLEDGE_VERSION",versionId,Map.of("articleId",id));
+      notifyAuthor(id,versionId,approve,user);
+      return list(user).stream().filter(a->a.id()==id).findFirst().orElseThrow();
     });
-    audit.log(user.id(),"KNOWLEDGE_REVIEWED","KNOWLEDGE",id,Map.of("approved",approve,"comment",Objects.toString(comment,"")));
-    if(approve) audit.log(user.id(),"KNOWLEDGE_VERSION_PUBLISHED","KNOWLEDGE_VERSION",versionId,Map.of("articleId",id));
-    notifyAuthor(id, versionId, approve, user);
-    return list(user).stream().filter(a->a.id()==id).findFirst().orElseThrow();
+  }
+
+  private Map<String,Object> lockArticle(long id) {
+    List<Map<String,Object>> rows=jdbc.queryForList("SELECT id,status,current_version_id FROM knowledge_articles WHERE id=? FOR UPDATE",id);
+    if(rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"文章不存在");
+    return rows.get(0);
   }
 
   /** 审核结果触达文章作者（导入生成等无作者的文章自动跳过）。 */
@@ -327,37 +375,38 @@ public class KnowledgeService {
   /** 撤回/下架（事务）：文章置 ARCHIVED 后立即退出检索与列表，保留全部版本与审计记录，不做物理删除。 */
   public KnowledgeArticle retract(long id, UserContext user){
     auth.requireAdmin(user);
-    List<Map<String,Object>> rows=jdbc.queryForList("SELECT id,status FROM knowledge_articles WHERE id=?",id);
-    if(rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"文章不存在");
-    tx.executeWithoutResult(s -> {
+    return tx.execute(s -> {
+      Map<String,Object> article=lockArticle(id);
       jdbc.update("UPDATE knowledge_articles SET status='ARCHIVED',reviewed_by=?,reviewed_at=now(),review_comment=?,updated_at=now() WHERE id=?",user.id(),"管理员撤回",id);
       jdbc.update("UPDATE import_items SET status='RETRACTED',updated_at=now() WHERE article_id=? AND status='PUBLISHED'",id);
+      audit.log(user.id(),"KNOWLEDGE_RETRACTED","KNOWLEDGE",id,Map.of("previousStatus",Objects.toString(article.get("status"),"")));
+      return list(user).stream().filter(a->a.id()==id).findFirst().orElseThrow();
     });
-    audit.log(user.id(),"KNOWLEDGE_RETRACTED","KNOWLEDGE",id,Map.of("previousStatus",Objects.toString(rows.get(0).get("status"),"")));
-    return list(user).stream().filter(a->a.id()==id).findFirst().orElseThrow();
   }
 
-  /** 管理员编辑文章：内容变更生成新版本（vMax+1，DRAFT）并重新分块，文章回到 IN_REVIEW 走既有审核流；
-   *  current_version_id 不切换——审核通过前，线上发布版本保持可读。仅元数据变更不影响状态。 */
+  /** Draft creation, chunks and metadata commit together; embedding runs only after commit. */
   public Map<String,Object> update(long id, KnowledgeUpdateRequest req, UserContext user){
     auth.requireAdmin(user);
-    List<Map<String,Object>> rows=jdbc.queryForList("SELECT id,status FROM knowledge_articles WHERE id=?",id);
-    if(rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"文章不存在");
     String sensitivity=req.sensitivity()==null?null:req.sensitivity().toUpperCase(java.util.Locale.ROOT);
     if(sensitivity!=null&&!Set.of("PUBLIC","INTERNAL","CONFIDENTIAL").contains(sensitivity)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"密级不合法");
-    boolean contentChanged=req.content()!=null&&!req.content().isBlank();
-    int newVersion=0; long newVersionId=0;
-    if(contentChanged){
-      newVersion=jdbc.queryForObject("SELECT coalesce(max(version),0)+1 FROM knowledge_versions WHERE article_id=?",Integer.class,id);
-      newVersionId=jdbc.queryForObject("INSERT INTO knowledge_versions(article_id,version,content,created_by,status) VALUES (?,?,?,?,'DRAFT') RETURNING id",Long.class,id,newVersion,req.content(),user.id());
-      indexChunks(id,newVersionId,req.content());
-      embedChunksIfConfigured(newVersionId);
-    }
-    final boolean contentFlag=contentChanged;
-    tx.executeWithoutResult(s -> {
+    if(req.visibility()!=null&&!Set.of("PUBLIC","DEPARTMENT").contains(req.visibility())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"可见范围不合法");
+    if(req.title()!=null&&req.title().isBlank()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"标题不能为空");
+    if(req.content()!=null&&req.content().isBlank()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"正文不能为空");
+    Map<String,Object> result=tx.execute(s -> {
+      Map<String,Object> article=lockArticle(id);
+      Long current=(Long)article.get("current_version_id");
+      String oldContent=current==null?null:jdbc.queryForObject("SELECT content FROM knowledge_versions WHERE id=?",String.class,current);
+      boolean contentChanged=req.content()!=null&&!req.content().equals(oldContent);
+      int newVersion=0; long newVersionId=0;
+      if(contentChanged){
+        newVersion=jdbc.queryForObject("SELECT coalesce(max(version),0)+1 FROM knowledge_versions WHERE article_id=?",Integer.class,id);
+        newVersionId=jdbc.queryForObject("INSERT INTO knowledge_versions(article_id,version,content,created_by,status) VALUES (?,?,?,?,'DRAFT') RETURNING id",Long.class,id,newVersion,req.content(),user.id());
+        indexChunks(id,newVersionId,req.content());
+      }
+      // A published article remains searchable while its next draft is reviewed.
       jdbc.update("UPDATE knowledge_articles SET title=COALESCE(?,title),category=COALESCE(?,category),visibility=COALESCE(?,visibility),"+
-          "sensitivity=COALESCE(?,sensitivity),status=CASE WHEN ? THEN 'IN_REVIEW' ELSE status END,updated_at=now() WHERE id=?",
-          req.title(),req.category(),req.visibility(),sensitivity,contentFlag,id);
+          "sensitivity=COALESCE(?,sensitivity),status=CASE WHEN ? AND status<>'PUBLISHED' THEN 'IN_REVIEW' ELSE status END,updated_at=now() WHERE id=?",
+          req.title(),req.category(),req.visibility(),sensitivity,contentChanged,id);
       if(req.tags()!=null){
         jdbc.update("DELETE FROM article_tags WHERE article_id=?",id);
         for(String tag:req.tags()) if(tag!=null&&!tag.isBlank()){ jdbc.update("INSERT INTO knowledge_tags(name) VALUES (?) ON CONFLICT DO NOTHING",tag.trim()); Long tagId=jdbc.queryForObject("SELECT id FROM knowledge_tags WHERE name=?",Long.class,tag.trim()); jdbc.update("INSERT INTO article_tags(article_id,tag_id) VALUES (?,?) ON CONFLICT DO NOTHING",id,tagId); }
@@ -366,10 +415,13 @@ public class KnowledgeService {
         jdbc.update("DELETE FROM knowledge_department_access WHERE article_id=?",id);
         for(Long departmentId:req.departmentIds()) if(departmentId!=null) jdbc.update("INSERT INTO knowledge_department_access(article_id,department_id) VALUES (?,?) ON CONFLICT DO NOTHING",id,departmentId);
       }
+      audit.log(user.id(),"KNOWLEDGE_UPDATED","KNOWLEDGE",id,Map.of("contentChanged",contentChanged,"newVersion",newVersion));
+      KnowledgeArticle updated=list(user).stream().filter(a->a.id()==id).findFirst().orElseThrow();
+      return Map.<String,Object>of("article",updated,"newVersionId",newVersionId,"newVersion",newVersion,"contentChanged",contentChanged);
     });
-    audit.log(user.id(),"KNOWLEDGE_UPDATED","KNOWLEDGE",id,Map.of("contentChanged",contentChanged,"newVersion",newVersion));
-    KnowledgeArticle article=list(user).stream().filter(a->a.id()==id).findFirst().orElseThrow();
-    return Map.of("article",article,"newVersionId",newVersionId,"newVersion",newVersion,"contentChanged",contentChanged);
+    long versionId=((Number)result.get("newVersionId")).longValue();
+    if(versionId>0) java.util.concurrent.CompletableFuture.runAsync(() -> embedChunksIfConfigured(versionId));
+    return result;
   }
 
   public KnowledgeArticle create(KnowledgeCreateRequest req, UserContext user){

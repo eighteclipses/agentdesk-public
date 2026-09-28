@@ -1,0 +1,82 @@
+{
+  "tag": "202609280909254033fd",
+  "base": "http://127.0.0.1:15179/api",
+  "isolated": "http://127.0.0.1:18089",
+  "container": "agentdesk-functional-20260922-postgres",
+  "database": "agentdesk_test",
+  "checks": [
+    {
+      "name": "isolated backend health",
+      "status": "passed"
+    },
+    {
+      "name": "frontend proxy API",
+      "status": "passed"
+    },
+    {
+      "name": "knowledge lifecycle and version visibility",
+      "status": "passed",
+      "article_id": 68
+    },
+    {
+      "name": "Markdown import, MinIO original and version review",
+      "status": "passed",
+      "article_id": 69
+    },
+    {
+      "name": "same-SHA two-file version batch bulk publish",
+      "status": "passed",
+      "batch_id": 92
+    },
+    {
+      "name": "queue scoped Agent action proposal, approval and employee 403",
+      "status": "passed",
+      "ticket_id": 40
+    },
+    {
+      "name": "department creation",
+      "status": "passed",
+      "department_id": 65
+    }
+  ],
+  "status": "PASSED",
+  "knowledge": {
+    "article_id": 68,
+    "version1_id": 129,
+    "rejected_version_id": 130,
+    "published_version_id": 131,
+    "pending_draft_id": 132
+  },
+  "imports": {
+    "article_id": 69,
+    "item1_id": 91,
+    "item2_id": 92,
+    "batch1_id": 90,
+    "batch2_id": 91,
+    "published_version_id": 133,
+    "approved_version_id": 134
+  },
+  "same_batch_version": {
+    "batch_id": 92,
+    "article_id": 70,
+    "item_ids": [
+      93,
+      94
+    ],
+    "statuses": [
+      "PUBLISHED",
+      "CANCELED"
+    ],
+    "published_count": 1
+  },
+  "agent": {
+    "ticket_id": 40,
+    "approved_action_id": 6,
+    "pending_action_id": 7
+  },
+  "department": {
+    "id": 65,
+    "name": "QA Department 202609280909254033fd"
+  },
+  "check_count": 7
+}

@@ -33,6 +33,16 @@ export interface NotificationPage {
   items: NotificationItem[]; total: number; unread: number
 }
 
+export interface AgentAction {
+  id: number
+  actionType: string
+  ticketId: number
+  status: string
+  payload: Record<string, unknown>
+  createdAt: string
+  decidedAt?: string | null
+}
+
 export interface StatBucket { label: string; count: number }
 export interface DayPoint { date: string; count: number }
 

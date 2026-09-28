@@ -31,7 +31,10 @@ const nav = computed(() => {
   return [
     { label: '总览', to: '/workspace', icon: LayoutDashboard },
     { label: '我的工单', to: '/workspace/tickets', icon: ClipboardList },
-    ...(isAgent.value ? [{ label: '处理工作台', to: '/workspace/agent', icon: Activity }] : []),
+    ...(isAgent.value ? [
+      { label: '处理工作台', to: '/workspace/agent', icon: Activity },
+      { label: '审批中心', to: '/workspace/approvals', icon: ShieldCheck },
+    ] : []),
     { label: '企业知识库', to: '/workspace/knowledge', icon: BookOpen },
     { label: '问答工作区', to: '/workspace/ask', icon: MessagesSquare },
     { label: '个人知识库', to: '/vault', icon: NotebookPen },

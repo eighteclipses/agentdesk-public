@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { api, errorMessage } from '../api'
 import { useAuth } from '../stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Check, Activity, FileSearch, Sparkles, RefreshCw, LoaderCircle, UserPlus } from 'lucide-vue-next'
+import { Check, Activity, FileSearch, Sparkles, RefreshCw, LoaderCircle, UserPlus, ShieldCheck } from 'lucide-vue-next'
 import TicketDetailPanel from '../components/TicketDetailPanel.vue'
 import { openCitationTarget } from '../lib/citations'
 import type { Ticket } from '../lib/types'
@@ -12,6 +13,7 @@ import { useTicketList } from '../lib/useTicketList'
 import TicketFilters from '../components/TicketFilters.vue'
 
 const auth = useAuth()
+const router = useRouter()
 const { tickets, total, page, pages, filters, loading, loadError, selected, detailError, load, openTicket, closeTicket, search, gotoPage, changed } = useTicketList('open')
 const drafts = ref<Record<number, { text: string; citations: any[] }>>({})
 const draft = computed(() => selected.value ? drafts.value[selected.value.id]?.text || '' : '')
@@ -98,7 +100,7 @@ async function submitRecommendation(t: Ticket) {
   try {
     await api.post('/agent/actions', suggestion)
     submitted.value[t.id] = true
-    ElMessage.success('已提交审批，可到审批与审计查看')
+    ElMessage.success('已提交审批，请到审批中心完成人工确认')
   } catch (e) { ElMessage.error(errorMessage(e, '提交审批失败')) }
   finally { setBusy(t, '') }
 }
@@ -106,7 +108,7 @@ async function submitRecommendation(t: Ticket) {
 
 <template>
   <section class="page">
-    <div class="page-head"><div><p class="eyebrow">WORKSPACE / AGENT</p><h1>处理工作台</h1><p class="muted">找到需要处理的问题，查看上下文，回复并跟进解决结果。</p></div><button class="secondary" :disabled="loading" @click="changed"><RefreshCw :size="16" />刷新</button></div>
+    <div class="page-head"><div><p class="eyebrow">WORKSPACE / AGENT</p><h1>处理工作台</h1><p class="muted">找到需要处理的问题，查看上下文，回复并跟进解决结果。</p></div><div class="page-head-actions"><button class="secondary" @click="router.push('/workspace/approvals')"><ShieldCheck :size="16" />审批中心</button><button class="secondary" :disabled="loading" @click="changed"><RefreshCw :size="16" />刷新</button></div></div>
     <div class="panel table-panel">
       <TicketFilters v-model="filters" agent :loading="loading" @search="search" />
       <div class="panel-title"><span>授权队列工单</span><span class="muted">共 {{ total }} 条</span></div>
@@ -127,7 +129,7 @@ async function submitRecommendation(t: Ticket) {
             <button class="secondary" :disabled="!!busyAction[t.id]" @click="retrieve(t)">{{ busyAction[t.id] === 'retrieve' ? '生成中…' : 'AI 回复草稿' }}</button>
             <button v-if="!['RESOLVED','CLOSED'].includes(t.status)" class="secondary" :disabled="!!busyAction[t.id]" @click="recommend(t)">{{ busyAction[t.id] === 'recommend' ? '分析中…' : '分流建议' }}</button>
           </div>
-          <div v-if="recommendations[t.id]" class="recommendation"><p>{{ recommendations[t.id].team }} · {{ recommendations[t.id].reason }}</p><button v-if="recommendations[t.id].suggestedAction" class="secondary" :disabled="!!busyAction[t.id] || submitted[t.id]" @click="submitRecommendation(t)">{{ submitted[t.id] ? '已提交审批' : '提交分流审批' }}</button></div>
+          <div v-if="recommendations[t.id]" class="recommendation"><p>{{ recommendations[t.id].team }} · {{ recommendations[t.id].reason }}</p><div class="recommendation-actions"><button v-if="recommendations[t.id].suggestedAction" class="secondary" :disabled="!!busyAction[t.id] || submitted[t.id]" @click="submitRecommendation(t)">{{ submitted[t.id] ? '已提交审批' : '提交分流审批' }}</button><button v-if="submitted[t.id]" class="link-button" @click="router.push('/workspace/approvals')">前往审批中心</button></div></div>
           <div v-if="t.id in assignOptions" class="assign-bar"><select v-model="assignValue[t.id]" aria-label="选择处理人"><option value="">选择队列内处理人</option><option v-for="o in assignOptions[t.id]" :key="o.id" :value="String(o.id)">{{ o.displayName }}</option></select><button class="secondary" :disabled="!!busyAction[t.id]" @click="assign(t)">确认指派</button></div></td>
         </tr></tbody>
       </table>
@@ -145,4 +147,5 @@ async function submitRecommendation(t: Ticket) {
 .assign-bar { display:flex; gap:6px; margin-top:12px; flex-wrap:wrap; }
 .assign-bar select { max-width:220px; }
 .recommendation { max-width:420px; font-size:12px; }
+.page-head-actions, .recommendation-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 </style>

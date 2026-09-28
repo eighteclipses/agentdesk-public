@@ -69,12 +69,12 @@ public class KnowledgeController {
   @GetMapping("/articles/{id}") public Map<String,Object> detail(@PathVariable long id,@RequestParam(required=false) Long versionId,HttpServletRequest req){return service.detail(id,auth.current(req),versionId);}
   @GetMapping("/articles/{id}/versions") public List<ArticleVersionInfo> versions(@PathVariable long id,HttpServletRequest req){return service.versions(id,auth.current(req));}
   @GetMapping("/articles/{id}/chunks") public List<ChunkInfo> chunks(@PathVariable long id,HttpServletRequest req){return service.chunks(id,auth.current(req));}
-  @PostMapping("/articles/{id}/review") public KnowledgeArticle review(@PathVariable long id,@Valid @RequestBody ReviewRequest body,HttpServletRequest req){return service.review(id,body.approve(),body.comment(),auth.current(req));}
+  @PostMapping("/articles/{id}/review") public KnowledgeArticle review(@PathVariable long id,@Valid @RequestBody ReviewRequest body,HttpServletRequest req){return service.review(id,body.approve(),body.comment(),auth.current(req),body.versionId(),body.expectedArticleStatus());}
   @PostMapping("/articles/{id}/retract") public KnowledgeArticle retract(@PathVariable long id,HttpServletRequest req){return service.retract(id,auth.current(req));}
 
   @GetMapping("/articles/{id}/file")
-  public ResponseEntity<InputStreamResource> file(@PathVariable long id,HttpServletRequest req){
-    Map<String,Object> file=service.fileSource(id,auth.current(req));
+  public ResponseEntity<InputStreamResource> file(@PathVariable long id,@RequestParam(required=false) Long versionId,HttpServletRequest req){
+    Map<String,Object> file=service.fileSource(id,auth.current(req),versionId);
     InputStream stream=storage.download(Objects.toString(file.get("objectKey")));
     String fileName=Objects.toString(file.get("fileName"),"download");
     String encoded=URLEncoder.encode(fileName, StandardCharsets.UTF_8).replace("+","%20");

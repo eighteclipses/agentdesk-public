@@ -1,0 +1,207 @@
+{
+  "started_at": "2026-09-28T09:08:56.706671+00:00",
+  "provider": "deepseek",
+  "synthetic_data": true,
+  "checks": [
+    {
+      "name": "three real cookie sessions",
+      "status": "passed"
+    },
+    {
+      "name": "employee creates NEW ticket",
+      "status": "passed",
+      "ticket_id": 39
+    },
+    {
+      "name": "real model classify",
+      "status": "passed",
+      "source": "DEEPSEEK",
+      "run_id": 2,
+      "elapsed_ms": 1516
+    },
+    {
+      "name": "real model recommend",
+      "status": "passed",
+      "source": "DEEPSEEK",
+      "run_id": 3,
+      "elapsed_ms": 1625
+    },
+    {
+      "name": "real model retrieve-draft",
+      "status": "passed",
+      "source": "DEEPSEEK",
+      "run_id": 4,
+      "elapsed_ms": 1312
+    },
+    {
+      "name": "model suggestion waits for human approval",
+      "status": "passed",
+      "action_id": 5
+    },
+    {
+      "name": "employee cannot approve an Agent action",
+      "status": "passed"
+    },
+    {
+      "name": "administrator approves; ticket becomes ASSIGNED",
+      "status": "passed"
+    },
+    {
+      "name": "queue agent starts handling the ticket",
+      "status": "passed"
+    },
+    {
+      "name": "agent resolves with an employee-visible explanation",
+      "status": "passed"
+    },
+    {
+      "name": "requester confirms and closes the ticket",
+      "status": "passed"
+    },
+    {
+      "name": "status transitions are auditable",
+      "status": "passed",
+      "event_count": 3
+    }
+  ],
+  "status": "PASSED",
+  "providers": [
+    {
+      "key": "deepseek",
+      "model": "deepseek-chat",
+      "label": "DEEPSEEK · deepseek-chat"
+    }
+  ],
+  "ticket_id": 39,
+  "classify": {
+    "ok": true,
+    "category": "NETWORK",
+    "priority": "P3",
+    "queueCode": "NETWORK",
+    "summary": "出差电脑连接公司 VPN 时提示认证超时，需按手册排查设备时间、证书有效期、DNS 与客户端缓存。",
+    "recommendedTeam": "网络服务队列",
+    "nextStep": "1) 确认设备时间是否准确；2) 检查企业证书是否在有效期内；3) 切换到公司网络测试 DNS 解析；4) 清理 VPN 客户端缓存后重新登录；5) 若连续三次失败，请用户附上客户端日志提交 IT 服务台。",
+    "confidence": 0.92,
+    "evidence": [
+      {
+        "citation": "article:1/version:1#c0",
+        "articleId": 1,
+        "versionId": 1,
+        "title": "VPN 认证超时排查手册",
+        "snippet": "<b>VPN</b> 认证超时时，先确认设备时间与企业证书有效期；再切换到公司网络测试 DNS；仍失败时清理客户端缓存并重新登录。若连续三次失败，请附上客户端日志提交 IT 服务台。"
+      },
+      {
+        "citation": "article:2/version:2#c0",
+        "articleId": 2,
+        "versionId": 2,
+        "title": "JDK 与 Maven 安装规范",
+        "snippet": "开发设备安装 JDK 17 与 Maven 前，需要在软件中心提交申请。安装后设置 JAVA_HOME，并使用 mvn -v 验证版本。禁止从未知站点下载可执行安装包"
+      },
+      {
+        "citation": "article:3/version:3#c0",
+        "articleId": 3,
+        "versionId": 3,
+        "title": "账号权限申请与审批流程",
+        "snippet": "申请生产、数据库或管理员权限时，填写业务用途、有效期和直属主管。IT 服务台审核后由系统管理员授权，临时权限到期自动回收。"
+      },
+      {
+        "citation": "article:30/version:54#c0",
+        "articleId": 30,
+        "versionId": 54,
+        "title": "QA 手工版本隔离 20260922084638951c8d",
+        "snippet": "# QA 手工版本隔离 20260922084638951c8d\n\n<b>VPN</b> v3 published：关闭系统代理，检查 TCP 443，联系网络服务台。测试标签 20260922084638951c8d。"
+      },
+      {
+        "citation": "article:43/version:82#c0",
+        "articleId": 43,
+        "versionId": 82,
+        "title": "QA 手工版本隔离 20260922084850aef161",
+        "snippet": "# QA 手工版本隔离 20260922084850aef161\n\n<b>VPN</b> v4 pending draft：仅供 UI 审核验收。测试标签 20260922084850aef161。"
+      }
+    ],
+    "source": "DEEPSEEK",
+    "runId": 2
+  },
+  "recommend": {
+    "ok": true,
+    "priority": "P3",
+    "team": "网络服务队列",
+    "queueCode": "NETWORK",
+    "nextStep": "按《VPN 认证超时排查手册》引导用户：1) 确认设备时间与企业证书有效期；2) 切换到公司网络测试 DNS；3) 清理客户端缓存并重新登录；若连续三次失败，请用户附上客户端日志提交 IT 服务台。",
+    "reason": "工单为 VPN 认证超时，命中知识库 article:1《VPN 认证超时排查手册》，属网络接入类问题；非生产中断、影响单人，故定 P3。article:30 为 QA 手工隔离版本（v3 published），其内容与手册一致但属测试标签，不作为主依据；article:43 为 pending draft，不予采用。",
+    "confidence": 0.86,
+    "suggestedAction": {
+      "actionType": "TRANSFER",
+      "ticketId": 39,
+      "payload": {
+        "queueCode": "NETWORK",
+        "reason": "按《VPN 认证超时排查手册》引导用户：1) 确认设备时间与企业证书有效期；2) 切换到公司网络测试 DNS；3) 清理客户端缓存并重新登录；若连续三次失败，请用户附上客户端日志提交 IT 服务台。"
+      }
+    },
+    "source": "DEEPSEEK",
+    "runId": 3
+  },
+  "retrieve-draft": {
+    "ok": true,
+    "draft": "先确认设备时间与企业证书有效期；再切换到公司网络测试 DNS；仍失败时清理客户端缓存并重新登录。若连续三次失败，请附上客户端日志提交 IT 服务台。此外可关闭系统代理、检查 TCP 443 是否开放，若认证仍超时联系网络服务台。",
+    "confidence": 0.9,
+    "citations": [
+      {
+        "citation": "article:1/version:1#c0",
+        "articleId": 1,
+        "versionId": 1,
+        "title": "VPN 认证超时排查手册",
+        "snippet": "<b>VPN</b> 认证超时时，先确认设备时间与企业证书有效期；再切换到公司网络测试 DNS；仍失败时清理客户端缓存并重新登录。若连续三次失败，请附上客户端日志提交 IT 服务台。"
+      },
+      {
+        "citation": "article:30/version:54#c0",
+        "articleId": 30,
+        "versionId": 54,
+        "title": "QA 手工版本隔离 20260922084638951c8d",
+        "snippet": "# QA 手工版本隔离 20260922084638951c8d\n\n<b>VPN</b> v3 published：关闭系统代理，检查 TCP 443，联系网络服务台。测试标签 20260922084638951c8d。"
+      },
+      {
+        "citation": "article:3/version:3#c0",
+        "articleId": 3,
+        "versionId": 3,
+        "title": "账号权限申请与审批流程",
+        "snippet": "申请生产、数据库或管理员权限时，填写业务用途、有效期和直属主管。IT 服务台审核后由系统管理员授权，临时权限到期自动回收。"
+      },
+      {
+        "citation": "article:2/version:2#c0",
+        "articleId": 2,
+        "versionId": 2,
+        "title": "JDK 与 Maven 安装规范",
+        "snippet": "开发设备安装 JDK 17 与 Maven 前，需要在软件中心提交申请。安装后设置 JAVA_HOME，并使用 mvn -v 验证版本。禁止从未知站点下载可执行安装包"
+      },
+      {
+        "citation": "article:31/version:57#c0",
+        "articleId": 31,
+        "versionId": 57,
+        "title": "QA Imported Article 20260922084638951c8d",
+        "snippet": "Keep TCP 443 open for <b>VPN</b>.\n- Contact the network service desk when authentication still times out."
+      }
+    ],
+    "source": "DEEPSEEK",
+    "runId": 4
+  },
+  "state_changes": [
+    {
+      "to": "CLOSED",
+      "from": "RESOLVED",
+      "reason": "演示确认：已核对处理结果，确认关闭。"
+    },
+    {
+      "to": "RESOLVED",
+      "from": "IN_PROGRESS",
+      "reason": "演示处理记录：依据知识库核对设备时间和证书，清理客户端缓存；模拟连接验证通过，请员工确认。"
+    },
+    {
+      "to": "IN_PROGRESS",
+      "from": "ASSIGNED",
+      "reason": ""
+    }
+  ],
+  "final_status": "CLOSED",
+  "finished_at": "2026-09-28T09:09:01.674017+00:00"
+}

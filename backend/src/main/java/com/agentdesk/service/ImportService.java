@@ -181,6 +181,8 @@ public class ImportService {
       final Long createdBy=((Number)item.get("created_by")).longValue();
       final List<Chunker.Chunk> chunkList=chunks;
       Map<String,Object> outcome=tx.execute(s -> {
+        // Workers must agree on one article even when equal files finish parsing together.
+        if(sha!=null&&!sha.isBlank()) jdbc.query("SELECT pg_advisory_xact_lock(hashtextextended(?,0))",(rs,n)->0,sha);
         Map<String,Object> dup=findDuplicate(sha,itemId);
         String strategy=Objects.toString(item.get("batch_strategy"),"skip");
         if (dup!=null && !"version".equals(strategy)) {
@@ -191,6 +193,8 @@ public class ImportService {
         boolean reuse=dup!=null;
         if (reuse) {
           articleId=((Number)dup.get("articleId")).longValue();
+          // Serialize version numbers with edits and reviews of the same article.
+          jdbc.queryForList("SELECT id FROM knowledge_articles WHERE id=? FOR UPDATE",articleId);
           // 版本策略沿用本批次声明的可见范围，而不是继承旧文章的设置（否则新批次收紧部门时会漏授权）
           String visibility=dept!=null?"DEPARTMENT":"PUBLIC";
           jdbc.update("UPDATE knowledge_articles SET visibility=?,updated_at=now() WHERE id=?",visibility,articleId);
@@ -202,8 +206,8 @@ public class ImportService {
           articleId=jdbc.queryForObject("INSERT INTO knowledge_articles(title,category,status,visibility) VALUES (?,?, 'IN_REVIEW',?) RETURNING id",Long.class,fTitle,"DOCUMENT",visibility);
           if (dept!=null) jdbc.update("INSERT INTO knowledge_department_access(article_id,department_id) VALUES (?,?) ON CONFLICT DO NOTHING",articleId,dept.longValue());
         }
-        Long versionId=jdbc.queryForObject("INSERT INTO knowledge_versions(article_id,version,content,created_by,status) VALUES (?,(SELECT coalesce(max(version),0)+1 FROM knowledge_versions WHERE article_id=?),?,?,'DRAFT') RETURNING id",
-            Long.class,articleId,articleId,markdown,createdBy);
+        Long versionId=jdbc.queryForObject("INSERT INTO knowledge_versions(article_id,version,content,created_by,status,source_import_item_id) VALUES (?,(SELECT coalesce(max(version),0)+1 FROM knowledge_versions WHERE article_id=?),?,?,'DRAFT',?) RETURNING id",
+            Long.class,articleId,articleId,markdown,createdBy,itemId);
         if (!reuse) jdbc.update("UPDATE knowledge_articles SET current_version_id=?,updated_at=now() WHERE id=?",versionId,articleId);
         int index=0;
         for (Chunker.Chunk c : chunkList) {
@@ -237,7 +241,7 @@ public class ImportService {
   /** 同一 sha256 的历史项：取最近一个已生成文章且处于 REVIEW/PUBLISHED 状态的导入项。 */
   private Map<String,Object> findDuplicate(String sha, long selfId) {
     if (sha==null||sha.isBlank()) return null;
-    List<Map<String,Object>> rows=jdbc.queryForList("SELECT id,article_id FROM import_items WHERE sha256=? AND article_id IS NOT NULL AND status IN ('REVIEW','PUBLISHED') AND id<>? ORDER BY id DESC LIMIT 1",sha,selfId);
+    List<Map<String,Object>> rows=jdbc.queryForList("SELECT id,article_id AS \"articleId\" FROM import_items WHERE sha256=? AND article_id IS NOT NULL AND status IN ('REVIEW','PUBLISHED') AND id<>? ORDER BY id DESC LIMIT 1",sha,selfId);
     return rows.isEmpty()?null:rows.get(0);
   }
 
@@ -308,14 +312,22 @@ public class ImportService {
   /** 批量发布：批次内所有 REVIEW 项的文章走审核通过，发布当前（最新）版本。 */
   public int publishBatch(long batchId, UserContext user) {
     auth.requireAdmin(user);
-    List<Map<String,Object>> rows=jdbc.queryForList("SELECT id,article_id,file_name FROM import_items WHERE batch_id=? AND status='REVIEW' AND article_id IS NOT NULL",batchId);
-    for (Map<String,Object> row : rows) {
-      knowledge.review(((Number)row.get("article_id")).longValue(),true,"导入批次批量发布",user);
+    List<Map<String,Object>> published=new ArrayList<>();
+    int count=tx.execute(s -> {
+      List<Map<String,Object>> rows=jdbc.queryForList("SELECT DISTINCT ON (i.article_id) i.id,i.article_id,i.file_name,v.id AS version_id FROM import_items i LEFT JOIN knowledge_versions v ON v.source_import_item_id=i.id WHERE i.batch_id=? AND i.status='REVIEW' AND i.article_id IS NOT NULL ORDER BY i.article_id,v.version DESC,i.id DESC",batchId);
+      for (Map<String,Object> row : rows) {
+        if(row.get("version_id")==null) throw new ResponseStatusException(HttpStatus.CONFLICT,"历史导入项无法确认对应版本，请在文章详情查看内容后审核");
+        knowledge.review(((Number)row.get("article_id")).longValue(),true,"导入批次批量发布",user,((Number)row.get("version_id")).longValue());
+        published.add(row);
+      }
+      refreshBatchStatus(batchId);
+      audit.log(user.id(),"IMPORT_BATCH_PUBLISHED","IMPORT_BATCH",batchId,Map.of("published",rows.size()));
+      return rows.size();
+    });
+    // Publish SSE progress only after the whole batch transaction has committed.
+    for(Map<String,Object> row:published)
       event(((Number)row.get("id")).longValue(),batchId,"PUBLISHED","已发布，员工知识问答即刻可检索",100,Objects.toString(row.get("file_name"),""));
-    }
-    refreshBatchStatus(batchId);
-    audit.log(user.id(),"IMPORT_BATCH_PUBLISHED","IMPORT_BATCH",batchId,Map.of("published",rows.size()));
-    return rows.size();
+    return count;
   }
 
   private void refreshBatchStatus(long batchId) {

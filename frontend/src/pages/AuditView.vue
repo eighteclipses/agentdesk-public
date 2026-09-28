@@ -1,22 +1,15 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { api, apiBase, errorMessage } from '../api'
-import { ElMessage } from 'element-plus'
-import { Check, X, Download } from 'lucide-vue-next'
+import { Download } from 'lucide-vue-next'
+import AgentApprovalQueue from '../components/AgentApprovalQueue.vue'
 
-const actions = ref<any[]>([])
 const audits = ref<any[]>([])
 const auditTotal = ref(0)
 const auditPage = ref(1)
 const auditSize = ref(50)
 const actionFilter = ref('')
-const busy = ref(false)
 const loadError = ref('')
-
-async function loadActions() {
-  try { actions.value = (await api.get('/agent/actions')).data }
-  catch (e: any) { loadError.value = errorMessage(e, '审批列表加载失败') }
-}
 
 async function loadAudits() {
   loadError.value = ''
@@ -27,19 +20,12 @@ async function loadAudits() {
   } catch (e: any) { loadError.value = errorMessage(e, '审计日志加载失败') }
 }
 
-async function load() { await Promise.all([loadActions(), loadAudits()]) }
-onMounted(load)
+onMounted(loadAudits)
 
 function filterAudits() { auditPage.value = 1; loadAudits() }
 function gotoPage(p: number) { auditPage.value = p; loadAudits() }
 const pageCount = () => Math.max(1, Math.ceil(auditTotal.value / auditSize.value))
 
-async function decide(id: number, ok: boolean) {
-  busy.value = true
-  try { await api.post(`/agent/actions/${id}/${ok ? 'approve' : 'reject'}`); await load(); ElMessage.success(ok ? '已批准' : '已驳回') }
-  catch (e: any) { ElMessage.error(errorMessage(e, '操作失败')) }
-  finally { busy.value = false }
-}
 </script>
 
 <template>
@@ -47,15 +33,10 @@ async function decide(id: number, ok: boolean) {
     <div class="page-head">
       <div><p class="eyebrow">ADMIN / AUDIT</p><h1>审批与审计</h1><p class="muted">Agent 建议必须人工确认，所有分析和写入动作都保留记录。</p></div>
     </div>
-    <div v-if="loadError" class="notice error">{{ loadError }} <button class="small" @click="load">重试</button></div>
     <div class="panel table-panel">
-      <div class="panel-title"><span>待审批 Agent 动作</span><span class="muted">{{ actions.length }} 条</span></div>
-      <div v-for="a in actions" :key="a.id" class="approval-row">
-        <div><strong>#{{ a.ticketId }} · {{ a.actionType }}</strong><small>{{ JSON.stringify(a.payload) }}</small></div>
-        <div><button class="approve" @click="decide(a.id, true)" :disabled="busy"><Check :size="15" />批准</button><button class="reject" @click="decide(a.id, false)" :disabled="busy"><X :size="15" />驳回</button></div>
-      </div>
-      <div v-if="!actions.length" class="muted">暂无待审批动作</div>
+      <AgentApprovalQueue @decided="loadAudits" />
     </div>
+    <div v-if="loadError" class="notice error">{{ loadError }} <button class="small" @click="loadAudits">重试</button></div>
     <div class="panel table-panel">
       <div class="panel-title">
         <span>审计日志</span><span class="muted">共 {{ auditTotal }} 条</span>

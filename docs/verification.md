@@ -29,8 +29,20 @@
 
 | 命令 | 结果 | 备注 |
 | --- | --- | --- |
-| \`cd agent && python -m pytest\` | **31 passed** | Python 3.10；离线测试，未调用真实模型 |
-| \`cd frontend && npm ci && npm test\` | **8 passed** | Node 22.15.1；SSE 确定性测试 |
-| \`cd frontend && npm run build\` | **通过** | \`vue-tsc\` 和 Vite 生产构建通过 |
-| \`cd backend && mvn test\` | **未执行** | 当前机器未安装 Maven，不能把后端测试写成已通过 |
-| \`docker compose up --build\` | **未执行** | 本次公开整理未启动完整 Docker 栈，不宣称真实数据库/对象存储/Agent 已完成端到端验证 |
+| `cd agent && python -m pytest` | **31 passed** | Python 3.10；离线测试，未调用真实模型 |
+| `cd frontend && npm ci && npm test` | **8 passed** | Node 22.15.1；SSE 确定性测试 |
+| `cd frontend && npm run build` | **通过** | `vue-tsc` 和 Vite 生产构建通过 |
+| `cd backend && mvn test` | **未执行** | 当前机器未安装 Maven，不能把后端测试写成已通过 |
+| `docker compose up --build` | **未执行** | 本次公开整理未启动完整 Docker 栈，不宣称真实数据库/对象存储/Agent 已完成端到端验证 |
+
+## 2026-09-22 后续功能验证
+
+2026-09-22 后续补齐了知识版本与原件访问边界、并发重复导入与批量发布、处理人审批入口和 AI Prompt 对照评估框架。该日期的历史结果为：后端 55 项通过（含 11 项真实 PostgreSQL 生命周期测试）、Agent 31 项通过、前端 8 项通过、7 组隔离 HTTP 场景通过；评估脚本 9 项离线测试通过，24 条案例及 2 组 Prompt 通过离线结构校验。详细范围及最后一次部署验证限制见[功能补全记录](functional-verification-2026-09-22.md)。
+
+这些数字保留为 2026-09-22 的历史记录。
+
+## 2026-09-28 实际运行与真实模型
+
+后端 55 项测试全部执行并通过，Agent 31 项、前端 8 项、评估脚本 9 项通过；开发版与脱敏公开版前端均完成类型检查和构建。隔离六容器 Docker 环境已运行，7 组真实 HTTP 场景及发布进度 SSE 回放通过。真实 DeepSeek 的分类、处理建议和引用回复均成功，12 项工单检查覆盖待审批、员工 403、人工批准、处理、解决和员工关闭。
+
+本轮使用已有隔离容器和镜像，更新并校验了最终构建，未从空缓存执行完整 Compose 构建。录屏因界面自动化工具停止而未完成。详细环境、机器可读证据、复现命令与未覆盖范围见[9 月 28 日验证记录](verification-2026-09-28.md)。

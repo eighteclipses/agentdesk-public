@@ -38,7 +38,7 @@ async function review(a: any, approve: boolean) {
     comment = r.value
   }
   try {
-    await api.post(`/knowledge/articles/${a.id}/review`, { approve, comment })
+    await api.post(`/knowledge/articles/${a.id}/review`, { approve, comment, versionId: a.pendingVersionId || undefined, expectedArticleStatus: a.status })
     ElMessage.success(approve ? '已发布，员工问答即刻可检索' : '已驳回')
     await load()
   } catch (e: any) { ElMessage.error(errorMessage(e, '审核操作失败')) }
@@ -122,7 +122,7 @@ async function createArticle() {
         <input v-model="form.tags" placeholder="标签，逗号分隔，如：VPN,网络" style="grid-column: 1 / -1" />
         <textarea v-model="form.content" placeholder="Markdown 正文（必填）。保存后为草稿，审核通过才发布参与问答。" style="min-height: 160px" />
       </div>
-      <div v-if="form.visibility === 'DEPARTMENT'" class="dept-picker">
+      <div v-if="form.visibility === 'DEPARTMENT' || form.sensitivity === 'CONFIDENTIAL'" class="dept-picker">
         <label v-for="d in departments" :key="d.id" class="dept-option">
           <input type="checkbox" :value="d.id" v-model="createDepartmentIds" />{{ d.name }}
         </label>
@@ -154,9 +154,12 @@ async function createArticle() {
             </td>
             <td>{{ k.category }}</td>
             <td>v{{ k.version }}</td>
-            <td><span class="status">{{ statusLabel[k.status] || k.status }}</span></td>
+            <td><span class="status">{{ statusLabel[k.status] || k.status }}</span><small v-if="k.pendingVersionId">有新稿待审核</small></td>
             <td>
-              <template v-if="k.status === 'IN_REVIEW' || k.status === 'DRAFT' || k.status === 'REJECTED'">
+              <template v-if="k.pendingVersionId">
+                <button class="approve" @click="router.push({ path: `/knowledge/articles/${k.id}`, query: { version: k.pendingVersionId } })">查看并审核新稿</button>
+              </template>
+              <template v-else-if="k.status === 'IN_REVIEW' || k.status === 'DRAFT' || k.status === 'REJECTED'">
                 <button class="approve" @click="review(k, true)"><Check :size="14" />通过</button>
                 <button v-if="k.status === 'IN_REVIEW'" class="reject" @click="review(k, false)"><X :size="14" />驳回</button>
               </template>

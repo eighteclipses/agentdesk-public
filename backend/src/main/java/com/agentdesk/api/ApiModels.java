@@ -22,7 +22,7 @@ public final class ApiModels {
   public record Attachment(long id, long ticketId, String fileName, String contentType, long size, String objectKey, Instant createdAt) {}
   public record KnowledgeCreateRequest(@NotBlank String title, @NotBlank String content, String category, List<String> tags, String visibility, List<Long> departmentIds, String sensitivity) {}
   public record KnowledgeUpdateRequest(String title, String content, String category, String visibility, String sensitivity, List<String> tags, List<Long> departmentIds) {}
-  public record KnowledgeArticle(long id, String title, String category, String status, int version, String visibility, Instant updatedAt) {}
+  public record KnowledgeArticle(long id, String title, String category, String status, int version, String visibility, Instant updatedAt, Long pendingVersionId) {}
   /** chunkId/chunkIndex/headingPath/page 仅分块命中时非空；citation 形如 article:1/version:1#c3 或 article:1/version:1、note:12。 */
   public record KnowledgeHit(long articleId, int versionId, String title, String snippet, double score, String citation, Long chunkId, Integer chunkIndex, String headingPath, Integer page) {
     public KnowledgeHit(long articleId, int versionId, String title, String snippet, double score, String citation) { this(articleId, versionId, title, snippet, score, citation, null, null, null, null); }
@@ -69,7 +69,7 @@ public final class ApiModels {
   // ---- 导入批次 ----
   public record ImportBatchSummary(long id, String name, String status, int totalItems, Instant createdAt, long queued, long active, long review, long published, long failed, long duplicate) {}
   public record BatchCreateResult(long batchId, int totalItems, List<Long> itemIds) {}
-  public record ReviewRequest(boolean approve, String comment) {}
+  public record ReviewRequest(boolean approve, String comment, Long versionId, String expectedArticleStatus) {}
 
   // ---- 站内通知 ----
   public record NotificationItem(long id, String type, String title, String body, String link, String refType, Long refId, boolean read, Instant createdAt) {}

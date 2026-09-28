@@ -13,6 +13,7 @@ const routes = [
   { path: '/workspace', component: () => import('./pages/DashboardView.vue') },
   { path: '/workspace/tickets', component: () => import('./pages/TicketsView.vue') },
   { path: '/workspace/agent', component: () => import('./pages/AgentWorkbenchView.vue'), meta: { agent: true } },
+  { path: '/workspace/approvals', component: () => import('./pages/AgentApprovalView.vue'), meta: { agent: true } },
   { path: '/workspace/ask', component: () => import('./pages/AskView.vue') },
   { path: '/workspace/knowledge', component: () => import('./pages/KnowledgeBrowseView.vue') },
   { path: '/workspace/notifications', component: () => import('./pages/NotificationsView.vue') },

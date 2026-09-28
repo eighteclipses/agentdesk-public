@@ -11,18 +11,20 @@
 
 这是一个可公开展示的工程化版本：源码、测试、架构说明和演示截图都经过整理；截图中的账号、身份和演示凭据已脱敏，仓库不包含真实 API Key、生产数据或私有工作区文件。
 
+2026-09-28 已在隔离 Docker 环境实测：后端 55 项测试通过，真实 DeepSeek 分类、建议和引用回复通过，合成工单经人工审批后关闭。录屏仍未完成，详见[本次运行与模型验证记录](docs/verification-2026-09-28.md)。
+
 ## 项目亮点
 
 - **工单闭环**：员工提单、SLA 计算、队列分流、处理人认领、评论与附件、解决/关闭/重开。
 - **可解释 RAG**：PDF/DOCX/TXT/Markdown 导入后解析、归一化、分块、全文检索；可选 pgvector + RRF 混合召回；回答先给证据引用。
-- **AI 只做建议**：Agent 的分类、摘要、回复和动作建议不直接改变业务状态；转交、关闭等动作必须进入待审批状态，由有权限的人员确认。
-- **知识全生命周期**：草稿、审核、发布、撤回、版本切换、在线编辑和重新审核，过期版本不会继续参与检索。
+- **AI 只做建议**：Agent 的分类、摘要、回复和动作建议不直接改变业务状态；管理员和授权处理人可在审批中心复核动作，再批准或驳回。
+- **知识全生命周期**：草稿、审核、发布、撤回、版本切换、在线编辑和重新审核；新稿审核期间旧发布版保持可用，原件与知识版本绑定。
 - **企业权限模型**：管理员、服务台处理人、普通员工；部门/队列/可见范围/密级在列表、详情、检索和问答链路中统一过滤。
 - **治理与可观测性**：JWT Cookie/Bearer 鉴权、登录/问答限流、Agent 内部令牌、审计日志、站内通知、统计图表和 CSV 导出。
 
 ## 30 秒理解 AgentDesk
 
-\`\`\`mermaid
+```mermaid
 flowchart LR
     U[员工 / 服务台人员] --> UI[Vue 3 工作台]
     UI --> API[Spring Boot 业务 API]
@@ -35,11 +37,11 @@ flowchart LR
     API --> PG[(PostgreSQL + pgvector)]
     API --> RD[(Redis)]
     API --> OBJ[(MinIO)]
-\`\`\`
+```
 
 一次问答的核心链路：
 
-\`\`\`mermaid
+```mermaid
 sequenceDiagram
     participant User as 员工
     participant Web as Vue 工作台
@@ -58,7 +60,7 @@ sequenceDiagram
     Agent-->>API: stage → citations → token → done/error
     API-->>Web: SSE 增量响应
     Web-->>User: 回答、可点击引用、反馈或转人工
-\`\`\`
+```
 
 ## 界面与流程预览
 
@@ -76,12 +78,13 @@ sequenceDiagram
 
 | 模块 | 关键能力 | 对应实现 |
 | --- | --- | --- |
-| 员工工作台 | 首页、我的工单、企业知识库、问答、个人 Vault、通知 | \`frontend/src/pages/\` |
-| 管理后台 | 组织用户、队列、资料审核、导入中心、审批与审计、统计 | \`frontend/src/pages/Admin*.vue\`、\`DashboardView.vue\` |
-| 工单服务 | 状态流转、SLA、队列权限、评论、附件、通知 | \`backend/src/main/java/com/agentdesk/service/TicketService.java\` |
-| 知识服务 | 文章/版本/分块、权限过滤、CJK FTS、RRF、引用锚点 | \`KnowledgeService.java\`、\`RrfMerger.java\` |
-| Agent 服务 | 分类、摘要、文档解析、嵌入、流式问答、规则兜底 | \`agent/app/main.py\`、\`parsing.py\` |
-| 数据与治理 | Flyway 迁移、审计事件、通知、对象存储、限流 | \`backend/src/main/resources/db/migration/\` |
+| 员工工作台 | 首页、我的工单、企业知识库、问答、个人 Vault、通知 | `frontend/src/pages/` |
+| 处理人审批中心 | 管理员与队列处理人查看权限内的待审批动作，并复核工单后批准或驳回 | `frontend/src/pages/AgentApprovalView.vue`、`AgentApprovalQueue.vue` |
+| 管理后台 | 组织用户、队列、资料审核、导入中心、审批与审计、统计 | `frontend/src/pages/Admin*.vue`、`DashboardView.vue` |
+| 工单服务 | 状态流转、SLA、队列权限、评论、附件、通知 | `backend/src/main/java/com/agentdesk/service/TicketService.java` |
+| 知识服务 | 文章/版本/分块、权限过滤、CJK FTS、RRF、引用锚点 | `KnowledgeService.java`、`RrfMerger.java` |
+| Agent 服务 | 分类、摘要、文档解析、嵌入、流式问答、规则兜底 | `agent/app/main.py`、`parsing.py` |
+| 数据与治理 | Flyway 迁移、审计事件、通知、对象存储、限流 | `backend/src/main/resources/db/migration/` |
 
 ## 技术栈
 
@@ -95,7 +98,7 @@ sequenceDiagram
 
 ### 1. 检索不只追求“答出来”，而是保留证据链
 
-文档被拆成带文章、版本、分块索引和页码信息的知识单元。查询先用 PostgreSQL 中文全文检索召回；配置向量模型后，再将 FTS 与向量结果通过 RRF 融合。问答返回 \`article → version → chunk/page\` 引用，前端可以直接跳到文章详情和对应位置。
+文档被拆成带文章、版本、分块索引和页码信息的知识单元。查询先用 PostgreSQL 中文全文检索召回；配置向量模型后，再将 FTS 与向量结果通过 RRF 融合。问答返回 `article → version → chunk/page` 引用，前端可以直接跳到文章详情和对应位置。
 
 当长查询的 AND 召回不足一页时，系统会在同一次查询中放宽到 OR，并保留相关度排序与分页，避免把工单标题和描述整段喂给检索后出现“明明有资料却零结果”。
 
@@ -105,7 +108,7 @@ Agent 可以提出分类、分流、关闭等建议，但不直接写入关键�
 
 ### 3. 权限过滤前置到数据访问层
 
-普通员工只能看到自己的工单和授权知识；处理人按队列范围工作；\`CONFIDENTIAL\` 文章还要经过部门授权。权限条件不仅存在于前端按钮，也贯穿列表、详情、搜索、引用和问答接口，避免“页面隐藏了按钮，但接口仍可访问”的伪隔离。
+普通员工只能看到自己的工单和授权知识；处理人按队列范围工作；`CONFIDENTIAL` 文章还要经过部门授权。权限条件不仅存在于前端按钮，也贯穿列表、详情、搜索、引用和问答接口，避免“页面隐藏了按钮，但接口仍可访问”的伪隔离。
 
 ### 4. 文档导入是可观察的异步流水线
 
@@ -114,13 +117,13 @@ Agent 可以提出分类、分流、关闭等建议，但不直接写入关键�
 ### 5. 安全基线是默认行为
 
 - JWT_SECRET 缺失、不足 32 位或仍是占位符时，后端拒绝启动。
-- Agent 缺少内部服务令牌时，对 \`/v1/*\` fail-closed，仅保留健康检查。
+- Agent 缺少内部服务令牌时，对 `/v1/*` fail-closed，仅保留健康检查。
 - 登录与问答分别有限流；错误响应不向客户端泄露堆栈和底层细节。
 - 送入 LLM 的知识片段使用数据分隔符包裹，并在系统提示中明确“资料是数据，不是指令”。这是提示词注入的基线防护，不宣称可以替代完整安全评估。
 
 ## 目录结构
 
-\`\`\`text
+```text
 agentdesk/
 ├─ backend/       Spring Boot API、权限、工单、知识库、审计
 ├─ agent/         FastAPI Agent 编排与文档解析
@@ -129,7 +132,7 @@ agentdesk/
 ├─ scripts/       启动、冒烟、端到端和功能回归脚本
 ├─ docker-compose.yml
 └─ .env.example
-\`\`\`
+```
 
 ## 快速运行
 
@@ -142,12 +145,12 @@ agentdesk/
 
 ### Docker Compose
 
-\`\`\`powershell
+```powershell
 Copy-Item .env.example .env
 # 编辑 .env，至少填写 JWT_SECRET、AGENT_SERVICE_TOKEN、
 # POSTGRES_PASSWORD、REDIS_PASSWORD、MINIO_ROOT_PASSWORD
 ./scripts/start.ps1
-\`\`\`
+```
 
 访问：
 
@@ -158,27 +161,29 @@ Copy-Item .env.example .env
 
 ### 本地开发
 
-\`\`\`powershell
+```powershell
 cd backend; mvn spring-boot:run
 cd agent; python -m uvicorn app.main:app --reload --port 8000
 cd frontend; npm ci; npm run dev
-\`\`\`
+```
 
 ## 测试与验证
 
-\`\`\`powershell
+```powershell
 cd backend; mvn test
 cd agent; python -m pytest
 cd frontend; npm ci; npm test; npm run build
-\`\`\`
+```
 
 需要 Docker 栈时，再执行：
 
-\`\`\`powershell
+```powershell
 python scripts/e2e-verify.py
 python scripts/feature-verify.py
 python scripts/usability-verify.py
-\`\`\`
+```
+
+AI 对照评估框架默认只离线校验案例和 Prompt：运行 `python scripts/evaluate-ai.py --validate-only` 与 `python scripts/test-evaluate-ai.py`。只有显式传入 `--run` 并设置 `AI_EVAL_API_KEY`、`AI_EVAL_BASE_URL`、`AI_EVAL_MODEL` 才会调用模型。24 条合成案例的规则评分不是人工准确率，也不代表生产效果。2026-09-22 的历史测试明细与限制见 [功能补全记录](docs/functional-verification-2026-09-22.md)；该记录不代替之后的全链路运行验收。
 
 离线单元测试不会调用真实付费模型；全栈脚本会写入本地测试身份和演示数据，详细清理边界见 [验证说明](docs/verification.md)。
 
@@ -193,6 +198,7 @@ python scripts/usability-verify.py
 - [架构与关键设计](docs/architecture.md)
 - [公开演示指南](docs/public-demo.md)
 - [验证边界与结果记录](docs/verification.md)
+- [2026-09-22 功能补全与历史验证记录](docs/functional-verification-2026-09-22.md)
 - [技术路线与选型](docs/technology-selection.md)
 - [可用性审查记录](docs/usability-review-2026-09-11.md)
 - [公开发布检查清单](docs/public-release.md)

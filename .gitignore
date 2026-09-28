@@ -7,3 +7,5 @@ __pycache__/
 .idea/
 .vscode/
 scripts/qa-fixtures.local.json
+eval-results/
+verification-output/

@@ -176,7 +176,7 @@ paths:
       responses: {'200': {description: SSE 流}, '429': {description: 提问过于频繁}}
   /api/knowledge/articles/{id}:
     get:
-      summary: 文章详情（含大纲分块；管理员可看授权部门）
+      summary: 文章详情（含大纲分块；员工仅当前发布版本；管理员可看授权部门及草稿/历史版本）
       parameters:
         - {in: path, name: id, required: true, schema: {type: integer, format: int64}}
         - {in: query, name: versionId, schema: {type: integer, format: int64}}
@@ -185,7 +185,19 @@ paths:
     post:
       summary: 审核通过/驳回（管理员，事务化）
       parameters: [{in: path, name: id, required: true, schema: {type: integer, format: int64}}]
-      responses: {'200': {description: 已更新}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approve]
+              properties:
+                approve: {type: boolean}
+                comment: {type: string}
+                versionId: {type: integer, format: int64, description: 管理员已查看的版本，若已有更新版本则返回409}
+                expectedArticleStatus: {type: string, description: 管理员查看时的文章状态，若已撤回或发生其他状态变化则返回409}
+      responses: {'200': {description: 已更新；驳回新稿保留原发布版本}, '409': {description: 版本已变更，请重新查看后审核}}
   /api/knowledge/articles/{id}/retract:
     post:
       summary: 撤回/下架文章（管理员）
@@ -194,9 +206,11 @@ paths:
       responses: {'200': {description: 已撤回}}
   /api/knowledge/articles/{id}/file:
     get:
-      summary: 下载导入原件
-      parameters: [{in: path, name: id, required: true, schema: {type: integer, format: int64}}]
-      responses: {'200': {description: 二进制原件}}
+      summary: 下载指定可读版本对应的原件
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: integer, format: int64}}
+        - {in: query, name: versionId, schema: {type: integer, format: int64}, description: 默认当前版本；员工不能下载草稿或历史版本}
+      responses: {'200': {description: 二进制原件}, '404': {description: 版本不可读或无法确认原件对应关系}}
 
   # ---- 导入中心（异步流水线） ----
   /api/admin/imports:

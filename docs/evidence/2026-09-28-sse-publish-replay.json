@@ -1,0 +1,16 @@
+{
+  "status": "PASSED",
+  "batch_id": 92,
+  "assertions": [
+    "SSE init frame read through frontend proxy",
+    "one persisted PUBLISHED progress event",
+    "event item matches committed PUBLISHED import item"
+  ],
+  "event": {
+    "itemId": 93,
+    "stage": "PUBLISHED",
+    "message": "已发布，员工知识问答即刻可检索",
+    "progress": 100,
+    "at": "2026-09-28T09:09:32.356+00:00"
+  }
+}

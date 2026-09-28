@@ -105,7 +105,7 @@ onMounted(load)
     <template v-if="auth.isAdmin && stats">
       <div class="panel-title stats-head"><span><BarChart3 :size="16" /> 数据统计（近 {{ stats.days }} 天趋势 / 全量分布）</span></div>
       <div class="metrics stats-metrics">
-        <div class="metric"><span>SLA 达成率</span><strong>{{ stats.sla.rate === null ? '—' : stats.sla.rate + '%' }}</strong><small class="metric-sub">按期 {{ stats.sla.onTime }} · 超时 {{ stats.sla.overdue }}</small></div>
+        <div class="metric"><span>SLA 达成率</span><strong>{{ stats.sla.rate == null ? '—' : stats.sla.rate + '%' }}</strong><small class="metric-sub">按期 {{ stats.sla.onTime }} · 超时 {{ stats.sla.overdue }}</small></div>
         <div class="metric"><span>问答会话 / 消息</span><strong>{{ stats.qa.conversations }} <em class="metric-divider">/</em> {{ stats.qa.messages }}</strong><small class="metric-sub">累计问答规模</small></div>
         <div class="metric"><span>问答反馈</span><strong :class="{ 'metric-warn-text': stats.qa.feedbackDown > stats.qa.feedbackUp }">{{ stats.qa.feedbackUp }} <em class="metric-divider">/</em> {{ stats.qa.feedbackDown }}</strong><small class="metric-sub">赞 / 踩</small></div>
         <div class="metric"><span>引用点击率</span><strong>{{ stats.qa.citationsTotal === 0 ? '—' : Math.round((stats.qa.citationsClicked / stats.qa.citationsTotal) * 100) + '%' }}</strong><small class="metric-sub">点击 {{ stats.qa.citationsClicked }} / 引用 {{ stats.qa.citationsTotal }}</small></div>
